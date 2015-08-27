@@ -97,16 +97,17 @@ def map_clusters_by_groundtruth(data, labels, colors, map_individuals=False):
     mymap.draw('./mymap.html')
 
 #calculates the cut-off point of a similarity histogram based on 
-#keeping 20% of the trips
-def calculate_cutoff(firstbins, colors):
-    num = .2 * float(len(colors))
-    num = int(math.ceil(num))
-    sum = 0
-    for i in range(len(firstbins)):
-        bin = firstbins[i]
-        sum += len(bin)
-        if sum > num:
-            num = len(bin)
+#keeping 20% of the trips by frequency
+def calculate_cutoff(counts):
+    num = .2 * float(sum(counts))
+    total = 0
+    countscopy = copy.deepcopy(counts)
+    countscopy.sort(reverse=True)
+    for i in range(len(countscopy)):
+        bin = counts[i]
+        total += bin
+        if total > num:
+            num = bin
             break
     return num
 
@@ -116,16 +117,16 @@ def evaluate(firstbins, bins, oldcolors, counts):
     falseNeg = 0
     truePos = 0
     trueNeg = 0
-    num = calculate_cutoff(firstbins, oldcolors)
+    num = calculate_cutoff(counts)
     for i in range(len(oldcolors)):
         color = oldcolors[i]
         if any(i in bin for bin in bins):
-            if counts[color] >= num:
+            if counts[color] > num:
                 truePos += 1
             else:
                 falsePos += 1
         else:
-            if counts[color] >= num:
+            if counts[color] > num:
                 falseNeg += 1
             else:
                 trueNeg += 1
