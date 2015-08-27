@@ -1,7 +1,7 @@
 # Standard imports
 import math
-import matplotlib
-matplotlib.use('Agg')
+#import matplotlib
+#matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import numpy
 from sklearn import metrics
@@ -25,8 +25,9 @@ This is called by cluster_pipeline.py.
 """
 class similarity:
     
-    def __init__(self, data, radius):
+    def __init__(self, data, radius, colors=None):
         self.data = data
+        self.colors = colors
         if not data:
             self.data = []
         self.bins = []
@@ -38,7 +39,9 @@ class similarity:
             end_lon = self.data[a].trip_end_location.lon
             if self.distance(start_lat, start_lon, end_lat, end_lon):
                 self.data.pop(a)
-        print 'After removing trips that are points, there are ' + str(len(self.data)) + ' data points'
+                if self.colors:
+                    self.colors.pop(a)
+        #print 'After removing trips that are points, there are ' + str(len(self.data)) + ' data points'
         self.size = len(self.data)
 
     #create bins
@@ -55,10 +58,13 @@ class similarity:
         self.bins.sort(key=lambda bin: len(bin), reverse=True)
 
     #delete lower portion of bins
-    def delete_bins(self):
+    def delete_bins(self, numy=None):
         if len(self.bins) <= 1:
             return
-        num = self.elbow_distance()
+        if numy != None:
+            num = numy
+        else:
+            num = self.elbow_distance()
         sum = 0
         for i in range(len(self.bins)):
             sum += len(self.bins[i])
@@ -66,10 +72,10 @@ class similarity:
                 sum -= len(self.bins[i])
                 num = i
                 break
-        print 'the new number of trips is ' + str(sum)
-        print 'the cutoff point is ' + str(num)
+        #print 'the new number of trips is ' + str(sum)
+        #print 'the cutoff point is ' + str(num)
         self.num = num
-        self.graph()
+        #self.graph()
         for i in range(len(self.bins) - num):
             self.bins.pop()
         newdata = []
@@ -119,6 +125,7 @@ class similarity:
 
     #create the histogram
     def graph(self):
+        plt.clf()
         bars = [0] * len(self.bins)
         for i in range(len(self.bins)):
             bars[i] = len(self.bins[i])
@@ -133,7 +140,8 @@ class similarity:
         plt.xlim([0, N])
         plt.xlabel('Bins')
         plt.ylabel('Number of elements')
-        plt.savefig('histogram.png')
+        plt.show()
+        #plt.savefig('histogram.png')
 
     #evaluate the bins as if they were a clustering on the data
     def evaluate_bins(self):
@@ -144,7 +152,7 @@ class similarity:
         if not self.data or not self.bins:
             return
         if len(self.labels) < 2:
-            print 'Everything is in one bin.'
+            #print 'Everything is in one bin.'
             return
         labels = numpy.array(self.labels)
         points = []
@@ -157,8 +165,8 @@ class similarity:
                 path = [start_lat, start_lon, end_lat, end_lon]
                 points.append(path)
         a = metrics.silhouette_score(numpy.array(points), labels)
-        print 'number of bins is ' + str(len(self.bins))
-        print 'silhouette score is ' + str(a)
+        #print 'number of bins is ' + str(len(self.bins))
+        #print 'silhouette score is ' + str(a)
         return a
 
     #calculate the distance between two trips

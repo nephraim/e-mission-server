@@ -2,21 +2,26 @@
 from sklearn.metrics.cluster import homogeneity_score, completeness_score
 import numpy 
 import matplotlib.pyplot as plt
+import uuid as uu
+import sys
+import math
+import copy
 
 # our imports
 import emission.analysis.modelling.tour_model.cluster_pipeline as cp
 import emission.analysis.modelling.tour_model.similarity as similarity
+import emission.analysis.modelling.tour_model.evaluation as evaluation
 
 """
-Functions to evaluate clustering based on groundtruth. To use these functions, 
-an array of the length of the data must be passed in, with different values in the
-array indicating different groundtruth clusters.
-These functions can be used alongside the cluster pipeline to evaluate clustering.
-An example of how to run this with the cluster pipeline is in the main method. To run it, 
-pass in a list of groundtruth.
-Note that the cluster pipeline works with trips, not sections, so to use the above 
-code the groundtruth has to also be by trips. 
+Functions to evaluate filtering based on groundtruth. To use these functions, 
+save the groundtruth of the trips as a color field in the database, or import 
+them manually. If they are saved to the database, run this file with a uuid on the 
+command line. 
+
+This file displays the similarity histogram of the data, and a graph that represents 
+the evaluation of the histogram with different cutoff points. 
 """
+
 #turns color array into an array of integers
 def get_colors(data, colors):
     if len(data) != len(colors):
@@ -35,12 +40,12 @@ def update_colors(bins, colors):
     for bin in bins:
         for b in bin:
             newcolors.append(colors[b])
-    indices = [] * len(set(newcolors))
-    for n in newcolors:
-        if n not in indices:
-            indices.append(n)
-    for i in range(len(newcolors)):
-        newcolors[i] = indices.index(newcolors[i])
+    #indices = [] * len(set(newcolors))
+    #for n in newcolors:
+    #    if n not in indices:
+    #        indices.append(n)
+    #for i in range(len(newcolors)):
+    #    newcolors[i] = indices.index(newcolors[i])
     return newcolors
 
 #evaluates the cluster labels against the groundtruth colors
@@ -91,18 +96,105 @@ def map_clusters_by_groundtruth(data, labels, colors, map_individuals=False):
         mymap.addpath(path, matcol.rgb2hex(colormap(float(colors[i])/len(set(colors)))))
     mymap.draw('./mymap.html')
 
-def main(colors):
-    data = cp.read_data() #get the data
-    colors = get_colors(data, colors) #make colors the right format
-    data, bins = cp.remove_noise(data, .5, 300) #remove noise from data
-    ###### the next few lines are to evaluate the binning
-    sim = similarity.similarity(data, .5, 300) #create a similarity object
-    sim.bins = bins #set the bins, since we calculated them above
-    sim.evaluate_bins() #evaluate them to create the labels
-    ######
-    colors = update_colors(bins, colors) #update the colors to reflect deleted bins
-    labels = sim.labels #get labels
-    evaluate(numpy.array(colors), numpy.array(labels)) #evaluate the bins
-    clusters, labels, data = cp.cluster(data, len(bins)) #cluster
-    evaluate(numpy.array(colors), numpy.array(labels)) #evaluate clustering
-    map_clusters_by_groundtruth(data, labels, colors, map_individuals=False) #map clusters, make last parameter true to map individual clusters
+#calculates the cut-off point of a similarity histogram based on 
+#keeping 20% of the trips
+def calculate_cutoff(firstbins, colors):
+    num = .2 * float(len(colors))
+    num = int(math.ceil(num))
+    sum = 0
+    for i in range(len(firstbins)):
+        bin = firstbins[i]
+        sum += len(bin)
+        if sum > num:
+            num = len(bin)
+            break
+    return num
+
+#evaluates the filtering
+def evaluate(firstbins, bins, oldcolors, counts):
+    falsePos = 0
+    falseNeg = 0
+    truePos = 0
+    trueNeg = 0
+    num = calculate_cutoff(firstbins, oldcolors)
+    for i in range(len(oldcolors)):
+        color = oldcolors[i]
+        if any(i in bin for bin in bins):
+            if counts[color] >= num:
+                truePos += 1
+            else:
+                falsePos += 1
+        else:
+            if counts[color] >= num:
+                falseNeg += 1
+            else:
+                trueNeg += 1
+    return [truePos, falsePos, trueNeg, falseNeg]
+
+#creates a graph to show the evaluation on the filtering
+def graph(x,y, cutoff, elbow):
+    N = len(y)
+    width = .16
+    index = numpy.arange(N)
+    total = sum(y[0])
+    a = numpy.array(y)[:,0]/float(total)
+    b = numpy.array(y)[:,1]/float(total)
+    c = numpy.array(y)[:,2]/float(total)
+    d = numpy.array(y)[:,3]/float(total)
+    e = numpy.true_divide(a+c,a+b+c+d)
+    plt.clf()
+    rects1 = plt.bar(index, a, width, color='b', label='TruePos')
+    rects2 = plt.bar(index + width, b, width, color='g', label='FalsePos')
+    rects3 = plt.bar(index + 2*width, c, width, color='r', label='TrueNeg')
+    rects4 = plt.bar(index + 3*width, d, width, color='m', label='FalseNeg')
+    rects4 = plt.bar(index + 4*width, e, width, color='c', label='True/Total')
+    plt.xlabel('Frequency cutoff bin index')
+    plt.ylabel('Totals')
+    plt.title('Filtering Metrics for different cutoff points')
+    plt.xticks(index + 2*width, tuple(x))
+    plt.ylim(0,1)
+    plt.legend(loc=2)
+    plt.show()
+    maxy = list(e).index(max(e))
+    print 'The best cut-off point with ' + str(max(e)) + ' true/total is at bin index ' + str(x[maxy]) + ' and the index chosen is ' + str(elbow) + ' with a true/total score of ' + str(e[list(x).index(elbow)])
+
+#gets the heights of the bins
+def get_jumps(firstbins):
+    jumps = []
+    h = -1
+    for i in range(len(firstbins)):
+        bin = firstbins[i]
+        if len(bin) != h:
+            h = len(bin)
+            jumps.append(i)
+    return jumps
+
+def main():
+    uuid = None
+    if len(sys.argv) == 2:
+        uuid = sys.argv[1]
+        uuid = uu.UUID(uuid)
+    data, colors = cp.read_data(uuid=uuid) #read in data and colors
+    colors = get_colors(data, colors) #fix the colors to be integers
+    sim = similarity.similarity(data, 300, colors=colors) #create a similarity object
+    colors = sim.colors #actual colors
+    data = sim.data #actual data
+    sim.bin_data() #bin the data
+    elbow = sim.elbow_distance() #calculate the cut-off point that the algorithm would calculate
+    firstbins = sim.bins #saved bins before removing bins
+    colors = get_colors(data, colors) #fixed colors
+    counts = [0] * len(set(colors)) #get the frequency of each color
+    for c in colors:
+        counts[c] += 1
+    sim.graph() #graph the similarity histogram
+    jumps = get_jumps(firstbins) #get the different heights of the bins
+    y = []
+    x = []
+    for n in jumps:
+        d, bins = cp.remove_noise(data, 300, numy=n) #remove noise from data    
+        x.append(n)
+        y.append(evaluate(firstbins, bins, colors, counts)) #evaluate filtering with n as cut-off point
+    graph(x,y,n,elbow) #graph the results
+
+if __name__=='__main__':
+    main()

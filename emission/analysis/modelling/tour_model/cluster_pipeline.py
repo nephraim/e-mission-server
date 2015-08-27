@@ -34,9 +34,10 @@ read from the database.
 #read the data from the database. 
 def read_data(uuid=None,size=None):
     data = []
+    colors = []
     db = edb.get_trip_db()
     if uuid:
-        trips = db.find({'user_id' : uuid, 'type' : 'move'})
+        trips = db.find({'user_id' : uuid, 'type' : 'move', 'color' : {'$exists' : True}})
     else:
         trips = db.find({'type' : 'move'})
     if trips.count() == 0: 
@@ -49,22 +50,23 @@ def read_data(uuid=None,size=None):
         if not (trip.trip_start_location and trip.trip_end_location and trip.start_time):
             continue
         data.append(trip)
+        colors.append(t['color'])
         if size:
             if len(data) == size:
                 break
     if len(data) == 0: 
         return [] 
-    return data
+    return data, colors
 
 #put the data into bins and cut off the lower portion of the bins
-def remove_noise(data, radius):
+def remove_noise(data, radius, numy=None):
     if not data:
         return [], []
     sim = similarity.similarity(data, radius)
     sim.bin_data()
-    print 'number of bins before filtering: ' + str(len(sim.bins))
-    sim.delete_bins()
-    print 'number of bins after filtering: ' + str(len(sim.bins))
+    #print 'number of bins before filtering: ' + str(len(sim.bins))
+    sim.delete_bins(numy=numy)
+    #print 'number of bins after filtering: ' + str(len(sim.bins))
     return sim.newdata, sim.bins
 
 #cluster the data using k-means
@@ -76,7 +78,7 @@ def cluster(data, bins):
     max = int(math.ceil(1.5 * bins))
     feat.cluster(min_clusters=min, max_clusters=max)
     feat.map_clusters()
-    print 'number of clusters: ' + str(feat.clusters)
+    #print 'number of clusters: ' + str(feat.clusters)
     return feat.clusters, feat.labels, feat.data
 
 #prepare the data for the tour model
@@ -88,13 +90,13 @@ def cluster_to_tour_model(data, labels):
     repy.get_reps()
     repy.locations()
     repy.map()
-    print 'number of locations: ' + str(repy.num_locations)
+    #print 'number of locations: ' + str(repy.num_locations)
     repy.cluster_dict()
     return repy.tour_dict
 
 def main(uuid=None):
-    data = read_data(uuid)
-    print len(data)
+    data, colors = read_data(uuid)
+    #print len(data)
     data, bins = remove_noise(data, 300)
     n, labels, data = cluster(data, len(bins))
     tour_dict = cluster_to_tour_model(data, labels)
